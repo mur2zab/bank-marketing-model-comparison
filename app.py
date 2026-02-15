@@ -11,8 +11,71 @@ st.set_page_config(page_title="Bank Marketing ML", layout="wide")
 
 st.markdown("""
 <style>
+    /* Import fonts */
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
+    
+    /* Dark theme */
+    .stApp {
+        background: #0a0a0a;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+    
+    /* Hide sidebar */
     [data-testid="stSidebar"] {
         display: none;
+    }
+    
+    /* Typography */
+    h1, h2, h3, h4 {
+        color: #ffffff;
+        font-weight: 300;
+        letter-spacing: -0.02em;
+    }
+    
+    p, div, span, label {
+        color: #b5b5b5;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: #ffffff;
+        color: #0a0a0a;
+        border: none;
+        padding: 0.75rem 2rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        background: #e5e5e5;
+        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+    }
+    
+    /* Metrics */
+    [data-testid="stMetricValue"] {
+        font-size: 2rem;
+        font-weight: 300;
+        color: #ffffff;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #8a8a8a;
+        font-weight: 600;
+    }
+    
+    /* File uploader */
+    [data-testid="stFileUploader"] {
+        border: 2px dashed #3a3a3a;
+        background: #0f0f0f;
+        padding: 2rem;
+    }
+    
+    [data-testid="stFileUploader"]:hover {
+        border-color: #ffffff;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -37,8 +100,8 @@ def load_scaler():
 st.title("Bank Marketing Prediction")
 st.markdown("---")
 
-if 'uploaded_file' not in st.session_state:
-    st.session_state.uploaded_file = None
+if 'df' not in st.session_state:
+    st.session_state.df = None
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = None
 if 'results' not in st.session_state:
@@ -46,22 +109,28 @@ if 'results' not in st.session_state:
 
 st.header("Step 1: Upload Dataset")
 
-if st.session_state.uploaded_file is None:
+if st.session_state.df is None:
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
     if uploaded_file is not None:
-        st.session_state.uploaded_file = uploaded_file
-        st.rerun()
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.session_state.df = df
+            st.success(f"✓ Dataset: {len(df):,} records")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            st.info("Make sure the file is a valid CSV")
 else:
-    df = pd.read_csv(st.session_state.uploaded_file)
-    st.success(f"✓ Dataset: {len(df):,} records")
+    df = st.session_state.df
+    st.success(f"✓ Dataset: {len(df):,} records, {df.shape[1]} features")
     
     if st.button("Change File"):
-        st.session_state.uploaded_file = None
+        st.session_state.df = None
         st.session_state.selected_model = None
         st.session_state.results = None
         st.rerun()
 
-if st.session_state.uploaded_file is not None:
+if st.session_state.df is not None:
     st.markdown("---")
     st.header("Step 2: Select Model")
     
@@ -71,12 +140,12 @@ if st.session_state.uploaded_file is not None:
     selected_model = st.radio("Choose algorithm:", model_options)
     st.session_state.selected_model = selected_model
 
-if st.session_state.uploaded_file is not None and st.session_state.selected_model is not None:
+if st.session_state.df is not None and st.session_state.selected_model is not None:
     st.markdown("---")
     st.header("Step 3: Get Predictions")
     
     if st.button("Run Analysis"):
-        df = pd.read_csv(st.session_state.uploaded_file)
+        df = st.session_state.df
         
         if 'y' in df.columns:
             X_test = df.drop('y', axis=1)
@@ -110,6 +179,8 @@ if st.session_state.uploaded_file is not None and st.session_state.selected_mode
                 
                 st.success("✓ Analysis complete!")
                 st.rerun()
+        else:
+            st.error(f"Model file not found: model_{st.session_state.selected_model.replace(' ', '_').lower()}.pkl")
 
 if st.session_state.results is not None:
     results = st.session_state.results
