@@ -52,6 +52,22 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
     }
     
+    /* Download button styling */
+    .stDownloadButton > button {
+        background: #0a0a0a;
+        color: #ffffff;
+        border: 2px solid #ffffff;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        transition: all 0.3s ease;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: #ffffff;
+        color: #0a0a0a;
+    }
+    
     /* Metrics */
     [data-testid="stMetricValue"] {
         font-size: 2rem;
@@ -158,6 +174,36 @@ step1_active = st.session_state.df is None
 st.markdown(f'<div class="step-header"><div class="step-number {"active" if step1_active else "completed"}">{"Step 1" if step1_active else "✓"}</div><h2 class="step-title">Upload Dataset</h2></div>', unsafe_allow_html=True)
 
 if st.session_state.df is None:
+    st.markdown("**Need a sample file to test?**")
+    try:
+        with open('./model/test_data.csv', 'r') as f:
+            sample_data = f.read()
+        st.download_button(
+            label="📥 Download Sample Test Data",
+            data=sample_data,
+            file_name='sample_test_data.csv',
+            mime='text/csv',
+            help="Download a sample CSV file to test the application",
+            use_container_width=True
+        )
+    except FileNotFoundError:
+        try:
+            with open('./model/test_data_500.csv', 'r') as f:
+                sample_data = f.read()
+            st.download_button(
+                label="📥 Download Sample Test Data (500 records)",
+                data=sample_data,
+                file_name='sample_test_data.csv',
+                mime='text/csv',
+                help="Download a sample CSV file to test the application",
+                use_container_width=True
+            )
+        except FileNotFoundError:
+            pass
+    
+    st.markdown("---")
+    st.markdown("**Upload your dataset:**")
+    
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'], label_visibility="collapsed")
     if uploaded_file:
         st.session_state.df = pd.read_csv(uploaded_file)
@@ -184,7 +230,7 @@ if st.session_state.df is not None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 if st.session_state.selected_model and st.session_state.df is not None:
-    st.markdown('<div class="step-header"><div class="step-number active">3</div><h2 class="step-title">Run Analysis</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-header"><div class="step-number active">Step 3</div><h2 class="step-title">Run Analysis</h2></div>', unsafe_allow_html=True)
     
     if st.button("Execute Prediction", use_container_width=True):
         df = st.session_state.df
@@ -213,17 +259,49 @@ if st.session_state.current_results:
 
     if res['confusion_matrix'] is not None:
         st.pyplot(plot_styled_cm(res['confusion_matrix']))
-
-    if st.button("Add to Comparison Matrix"):
-        if not any(r['model_name'] == res['model_name'] for r in st.session_state.comparison_results):
-            st.session_state.comparison_results.append(res)
-            st.toast("Added!")
+    
+    # Download predictions button
+    st.markdown("---")
+    st.markdown("Export Predictions")
+    
+    df = st.session_state.df
+    results_df = df.copy()
+    results_df['Prediction'] = res['y_pred']
+    if 'y' in df.columns:
+        results_df['Actual'] = df['y']
+    
+    csv = results_df.to_csv(index=False)
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.download_button(
+            label="📥 Download Predictions CSV",
+            data=csv,
+            file_name=f"predictions_{res['model_name'].replace(' ', '_').lower()}.csv",
+            mime='text/csv',
+            use_container_width=True,
+            help="Download the complete dataset with predictions"
+        )
+    
+    with col2:
+        if st.button("Add to Comparison", use_container_width=True):
+            if not any(r['model_name'] == res['model_name'] for r in st.session_state.comparison_results):
+                st.session_state.comparison_results.append(res)
+                st.toast("✓ Added to comparison!")
+            else:
+                st.toast("Already in comparison!")
 
 if st.session_state.comparison_results:
     st.markdown("---")
-    st.markdown("## Model Comparison")
+    st.markdown("Model Comparison Matrix")
+    
     comp_df = pd.DataFrame(st.session_state.comparison_results).drop(['y_pred', 'confusion_matrix'], axis=1)
     st.table(comp_df)
-    if st.button("Clear Comparison"):
+    
+    if st.button("Clear Comparison", use_container_width=False):
         st.session_state.comparison_results = []
         st.rerun()
+
+# Footer
+st.markdown("---")
+st.caption("ML Assignment 2 • Bank Marketing Dataset")
