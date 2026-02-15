@@ -6,29 +6,26 @@ from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score,
                              confusion_matrix)
 import matplotlib.pyplot as plt
 import seaborn as sns
+import gc
 
 st.set_page_config(page_title="Bank Marketing ML", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
-    /* Import fonts */
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
-              
-    /* Dark theme */
+    
     body {
-        color: #ffffff;
+        color: #ffffff;        
     }
     .stApp {
         background: #0a0a0a;
         font-family: 'IBM Plex Sans', sans-serif;
     }
     
-    /* Hide sidebar */
     [data-testid="stSidebar"] {
         display: none;
     }
     
-    /* Typography */
     h1, h2, h3, h4 {
         color: #ffffff;
         font-weight: 300;
@@ -39,7 +36,6 @@ st.markdown("""
         color: #b5b5b5;
     }
     
-    /* Buttons */
     .stButton > button {
         background: #ffffff;
         color: #000000;
@@ -55,23 +51,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
     }
     
-    /* Download button styling */
-    .stDownloadButton > button {
-        background: #0a0a0a;
-        color: #ffffff;
-        border: 2px solid #ffffff;
-        padding: 0.6rem 1.5rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        transition: all 0.3s ease;
-    }
-    
-    .stDownloadButton > button:hover {
-        background: #ffffff;
-        color: #0a0a0a;
-    }
-    
-    /* Metrics */
     [data-testid="stMetricValue"] {
         font-size: 2rem;
         font-weight: 300;
@@ -86,7 +65,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* File uploader */
     [data-testid="stFileUploader"] {
         border: 2px dashed #3a3a3a;
         background: #0f0f0f;
@@ -107,6 +85,8 @@ if 'comparison_results' not in st.session_state:
     st.session_state.comparison_results = []
 if 'current_results' not in st.session_state:
     st.session_state.current_results = None
+if 'processing' not in st.session_state:
+    st.session_state.processing = False
 
 @st.cache_resource
 def load_model(model_name):
@@ -127,24 +107,18 @@ def load_scaler():
     
 def plot_styled_cm(cm):
     fig, ax = plt.subplots(figsize=(2.5, 1.8))
-    
     fig.patch.set_facecolor('#121212')
     ax.set_facecolor('#121212')
-    
     cmap = sns.dark_palette("#4a9eff", as_cmap=True)
-    
     sns.heatmap(cm, annot=True, fmt='d', cmap=cmap, cbar=False,
                 annot_kws={"size": 9, "family": "IBM Plex Mono", "weight": "bold"},
                 linewidths=0.5, linecolor='#121212')
-    
     ax.set_xticklabels(['NO', 'YES'], color='#888', family='IBM Plex Mono', fontsize=7)
     ax.set_yticklabels(['NO', 'YES'], color='#888', family='IBM Plex Mono', fontsize=7)
     ax.set_xlabel('PREDICTED', color='#4a9eff', family='IBM Plex Mono', fontsize=6)
     ax.set_ylabel('ACTUAL', color='#4a9eff', family='IBM Plex Mono', fontsize=6)
-    
     for _, spine in ax.spines.items():
         spine.set_visible(False)
-        
     plt.tight_layout(pad=0)
     return fig
 
@@ -155,9 +129,11 @@ def get_predictions(model, X_test, y_test, model_name, scaler):
     else:
         X_test_processed = X_test
     
+    if hasattr(X_test_processed, 'values'):
+        X_test_processed = X_test_processed.values
+    
     y_pred = model.predict(X_test_processed)
     y_pred_proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, 'predict_proba') else y_pred
-    
     results = {
         'model_name': model_name,
         'accuracy': accuracy_score(y_test, y_pred) if y_test is not None else None,
@@ -170,6 +146,11 @@ def get_predictions(model, X_test, y_test, model_name, scaler):
         'confusion_matrix': confusion_matrix(y_test, y_pred) if y_test is not None else None
     }
     return results
+
+
+def start_processing():
+    st.session_state.processing = True
+    st.session_state.current_results = None
 
 st.markdown('<div class="app-header"><h1>Bank Marketing Prediction</h1><div class="accent-line"></div><p class="subtitle">ML Classification System</p></div>', unsafe_allow_html=True)
 
@@ -209,15 +190,19 @@ if st.session_state.df is None:
     
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'], label_visibility="collapsed")
     if uploaded_file:
-        st.session_state.df = pd.read_csv(uploaded_file)
-        st.rerun()
+        try:
+            st.session_state.df = pd.read_csv(uploaded_file)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
 else:
-    st.markdown(f'<div class="status-badge">✓ {len(st.session_state.df)} Records Loaded</div>', unsafe_allow_html=True)
-    if st.button("Reset / Upload New File"):
+    st.success(f"✓ Dataset: {len(st.session_state.df):,} records")
+    if st.button("Change File"):
         st.session_state.df = None
+        st.session_state.selected_model = None
         st.session_state.current_results = None
+        st.session_state.processing = False
         st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
 
 if st.session_state.df is not None:
     step2_active = st.session_state.selected_model is None
@@ -229,26 +214,28 @@ if st.session_state.df is not None:
     if selected and selected != st.session_state.selected_model:
         st.session_state.selected_model = selected
         st.session_state.current_results = None
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.session_state.processing = False
 
-if st.session_state.selected_model and st.session_state.df is not None:
-    st.markdown('<div class="step-header"><div class="step-number active">Step 3</div><h2 class="step-title">Run Analysis</h2></div>', unsafe_allow_html=True)
-    
-    if st.button("Execute Prediction", use_container_width=True):
+if st.session_state.processing and not st.session_state.current_results:
+    with st.spinner("Processing..."):
         df = st.session_state.df
         X_test = df.drop('y', axis=1) if 'y' in df.columns else df
         y_test = df['y'] if 'y' in df.columns else None
-        
         model = load_model(st.session_state.selected_model)
         scaler = load_scaler()
-        
         if model:
             st.session_state.current_results = get_predictions(model, X_test, y_test, st.session_state.selected_model, scaler)
-            st.rerun()
-        else:
-            st.error(f"Model file for {st.session_state.selected_model} not found.")
-    st.markdown('</div>', unsafe_allow_html=True)
+            gc.collect()
+        st.session_state.processing = False
+        st.rerun()
+
+if st.session_state.selected_model and st.session_state.df is not None:
+    st.button(
+        "Execute Prediction", 
+        use_container_width=True, 
+        on_click=start_processing, 
+        disabled=st.session_state.processing
+    )
 
 if st.session_state.current_results:
     res = st.session_state.current_results
@@ -262,11 +249,13 @@ if st.session_state.current_results:
     m6.metric("MCC", f"{res['mcc']:.3f}")
 
     if res['confusion_matrix'] is not None:
-        st.pyplot(plot_styled_cm(res['confusion_matrix']))
+        fig = plot_styled_cm(res['confusion_matrix'])
+        st.pyplot(fig)
+        plt.close(fig)
     
     # Download predictions button
     st.markdown("---")
-    st.markdown("Export Predictions")
+    st.subheader("Export Results")
     
     df = st.session_state.df
     results_df = df.copy()
@@ -288,7 +277,7 @@ if st.session_state.current_results:
         )
     
     with col2:
-        if st.button("Add to Comparison", use_container_width=True):
+        if st.button("Add to Comparison Matrix"):
             if not any(r['model_name'] == res['model_name'] for r in st.session_state.comparison_results):
                 st.session_state.comparison_results.append(res)
                 st.toast("✓ Added to comparison!")
@@ -301,8 +290,7 @@ if st.session_state.comparison_results:
     
     comp_df = pd.DataFrame(st.session_state.comparison_results).drop(['y_pred', 'confusion_matrix'], axis=1)
     st.table(comp_df)
-    
-    if st.button("Clear Comparison", use_container_width=False):
+    if st.button("Clear Comparison"):
         st.session_state.comparison_results = []
         st.rerun()
 
