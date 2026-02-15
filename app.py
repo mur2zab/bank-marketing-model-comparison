@@ -13,8 +13,11 @@ st.markdown("""
 <style>
     /* Import fonts */
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
-    
+              
     /* Dark theme */
+    body {
+        color: #ffffff;
+    }
     .stApp {
         background: #0a0a0a;
         font-family: 'IBM Plex Sans', sans-serif;
@@ -39,7 +42,7 @@ st.markdown("""
     /* Buttons */
     .stButton > button {
         background: #ffffff;
-        color: #0a0a0a;
+        color: #000000;
         border: none;
         padding: 0.75rem 2rem;
         font-weight: 600;
@@ -179,7 +182,7 @@ if st.session_state.df is None:
         with open('./model/test_data.csv', 'r') as f:
             sample_data = f.read()
         st.download_button(
-            label="📥 Download Sample Test Data",
+            label="Download Sample Test Data",
             data=sample_data,
             file_name='sample_test_data.csv',
             mime='text/csv',
@@ -191,7 +194,7 @@ if st.session_state.df is None:
             with open('./model/test_data_500.csv', 'r') as f:
                 sample_data = f.read()
             st.download_button(
-                label="📥 Download Sample Test Data (500 records)",
+                label="Download Sample Test Data (500 records)",
                 data=sample_data,
                 file_name='sample_test_data.csv',
                 mime='text/csv',
@@ -250,12 +253,13 @@ if st.session_state.selected_model and st.session_state.df is not None:
 if st.session_state.current_results:
     res = st.session_state.current_results
     st.markdown("Metrics: " + res['model_name'])
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Accuracy", f"{res['accuracy']:.3f}")
     m2.metric("AUC", f"{res['auc']:.3f}")
     m3.metric("Precision", f"{res['precision']:.3f}")
     m4.metric("Recall", f"{res['recall']:.3f}")
     m5.metric("F1", f"{res['f1']:.3f}")
+    m6.metric("MCC", f"{res['mcc']:.3f}")
 
     if res['confusion_matrix'] is not None:
         st.pyplot(plot_styled_cm(res['confusion_matrix']))
@@ -275,7 +279,7 @@ if st.session_state.current_results:
     col1, col2 = st.columns([2, 1])
     with col1:
         st.download_button(
-            label="📥 Download Predictions CSV",
+            label="Download Predictions CSV",
             data=csv,
             file_name=f"predictions_{res['model_name'].replace(' ', '_').lower()}.csv",
             mime='text/csv',
