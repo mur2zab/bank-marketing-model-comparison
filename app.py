@@ -7,7 +7,7 @@ from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score,
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-st.set_page_config(page_title="Bank Marketing ML", layout="wide")
+st.set_page_config(page_title="Bank Marketing ML", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -80,13 +80,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+if 'df' not in st.session_state:
+    st.session_state.df = None
+if 'selected_model' not in st.session_state:
+    st.session_state.selected_model = None
+if 'comparison_results' not in st.session_state:
+    st.session_state.comparison_results = []
+if 'current_results' not in st.session_state:
+    st.session_state.current_results = None
+
 @st.cache_resource
 def load_model(model_name):
-    filename = f"model_{model_name.replace(' ', '_').lower()}.pkl"
+    filename = f"./model/model_{model_name.replace(' ', '_').lower()}.pkl"
     try:
         with open(filename, 'rb') as f:
             return pickle.load(f)
-    except:
+    except FileNotFoundError:
         return None
 
 @st.cache_resource
@@ -94,136 +103,127 @@ def load_scaler():
     try:
         with open('scaler.pkl', 'rb') as f:
             return pickle.load(f)
-    except:
+    except FileNotFoundError:
         return None
+    
+def plot_styled_cm(cm):
+    fig, ax = plt.subplots(figsize=(2.5, 1.8))
+    
+    fig.patch.set_facecolor('#121212')
+    ax.set_facecolor('#121212')
+    
+    cmap = sns.dark_palette("#4a9eff", as_cmap=True)
+    
+    sns.heatmap(cm, annot=True, fmt='d', cmap=cmap, cbar=False,
+                annot_kws={"size": 9, "family": "IBM Plex Mono", "weight": "bold"},
+                linewidths=0.5, linecolor='#121212')
+    
+    ax.set_xticklabels(['NO', 'YES'], color='#888', family='IBM Plex Mono', fontsize=7)
+    ax.set_yticklabels(['NO', 'YES'], color='#888', family='IBM Plex Mono', fontsize=7)
+    ax.set_xlabel('PREDICTED', color='#4a9eff', family='IBM Plex Mono', fontsize=6)
+    ax.set_ylabel('ACTUAL', color='#4a9eff', family='IBM Plex Mono', fontsize=6)
+    
+    for _, spine in ax.spines.items():
+        spine.set_visible(False)
+        
+    plt.tight_layout(pad=0)
+    return fig
 
-st.title("Bank Marketing Prediction")
-st.markdown("---")
+def get_predictions(model, X_test, y_test, model_name, scaler):
+    needs_scaling = ['Logistic Regression', 'K-Nearest Neighbors', 'Naive Bayes']
+    if model_name in needs_scaling and scaler is not None:
+        X_test_processed = scaler.transform(X_test)
+    else:
+        X_test_processed = X_test
+    
+    y_pred = model.predict(X_test_processed)
+    y_pred_proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, 'predict_proba') else y_pred
+    
+    results = {
+        'model_name': model_name,
+        'accuracy': accuracy_score(y_test, y_pred) if y_test is not None else None,
+        'auc': roc_auc_score(y_test, y_pred_proba) if y_test is not None else None,
+        'precision': precision_score(y_test, y_pred) if y_test is not None else None,
+        'recall': recall_score(y_test, y_pred) if y_test is not None else None,
+        'f1': f1_score(y_test, y_pred) if y_test is not None else None,
+        'mcc': matthews_corrcoef(y_test, y_pred) if y_test is not None else None,
+        'y_pred': y_pred,
+        'confusion_matrix': confusion_matrix(y_test, y_pred) if y_test is not None else None
+    }
+    return results
 
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'selected_model' not in st.session_state:
-    st.session_state.selected_model = None
-if 'results' not in st.session_state:
-    st.session_state.results = None
+st.markdown('<div class="app-header"><h1>Bank Marketing Prediction</h1><div class="accent-line"></div><p class="subtitle">ML Classification System</p></div>', unsafe_allow_html=True)
 
-st.header("Step 1: Upload Dataset")
+step1_active = st.session_state.df is None
+st.markdown(f'<div class="step-header"><div class="step-number {"active" if step1_active else "completed"}">{"Step 1" if step1_active else "✓"}</div><h2 class="step-title">Upload Dataset</h2></div>', unsafe_allow_html=True)
 
 if st.session_state.df is None:
-    uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-            st.session_state.df = df
-            st.success(f"✓ Dataset: {len(df):,} records")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
-            st.info("Make sure the file is a valid CSV")
-else:
-    df = st.session_state.df
-    st.success(f"✓ Dataset: {len(df):,} records, {df.shape[1]} features")
-    
-    if st.button("Change File"):
-        st.session_state.df = None
-        st.session_state.selected_model = None
-        st.session_state.results = None
+    uploaded_file = st.file_uploader("Upload CSV", type=['csv'], label_visibility="collapsed")
+    if uploaded_file:
+        st.session_state.df = pd.read_csv(uploaded_file)
         st.rerun()
+else:
+    st.markdown(f'<div class="status-badge">✓ {len(st.session_state.df)} Records Loaded</div>', unsafe_allow_html=True)
+    if st.button("Reset / Upload New File"):
+        st.session_state.df = None
+        st.session_state.current_results = None
+        st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 if st.session_state.df is not None:
-    st.markdown("---")
-    st.header("Step 2: Select Model")
+    step2_active = st.session_state.selected_model is None
+    st.markdown(f'<div class="step-header"><div class="step-number {"active" if step2_active else "completed"}">{"Step 2" if step2_active else "✓"}</div><h2 class="step-title">Select Model</h2></div>', unsafe_allow_html=True)
     
-    model_options = ['Logistic Regression', 'Decision Tree', 'K-Nearest Neighbors', 
-                     'Naive Bayes', 'Random Forest', 'XGBoost']
+    model_list = ['Logistic Regression', 'Decision Tree', 'K-Nearest Neighbors', 'Naive Bayes', 'Random Forest', 'XGBoost']
+    selected = st.selectbox("Choose algorithm", model_list, index=None, placeholder="Select a model...")
     
-    selected_model = st.radio("Choose algorithm:", model_options)
-    st.session_state.selected_model = selected_model
+    if selected and selected != st.session_state.selected_model:
+        st.session_state.selected_model = selected
+        st.session_state.current_results = None
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-if st.session_state.df is not None and st.session_state.selected_model is not None:
-    st.markdown("---")
-    st.header("Step 3: Get Predictions")
+if st.session_state.selected_model and st.session_state.df is not None:
+    st.markdown('<div class="step-header"><div class="step-number active">3</div><h2 class="step-title">Run Analysis</h2></div>', unsafe_allow_html=True)
     
-    if st.button("Run Analysis"):
+    if st.button("Execute Prediction", use_container_width=True):
         df = st.session_state.df
-        
-        if 'y' in df.columns:
-            X_test = df.drop('y', axis=1)
-            y_test = df['y']
-        else:
-            X_test = df
-            y_test = None
+        X_test = df.drop('y', axis=1) if 'y' in df.columns else df
+        y_test = df['y'] if 'y' in df.columns else None
         
         model = load_model(st.session_state.selected_model)
         scaler = load_scaler()
         
         if model:
-            if st.session_state.selected_model in ['Logistic Regression', 'K-Nearest Neighbors', 'Naive Bayes']:
-                X_test_processed = scaler.transform(X_test) if scaler else X_test
-            else:
-                X_test_processed = X_test
-            
-            with st.spinner('Running analysis...'):
-                y_pred = model.predict(X_test_processed)
-                
-                if hasattr(model, 'predict_proba'):
-                    y_pred_proba = model.predict_proba(X_test_processed)[:, 1]
-                else:
-                    y_pred_proba = y_pred
-                
-                st.session_state.results = {
-                    'y_pred': y_pred,
-                    'y_pred_proba': y_pred_proba,
-                    'y_test': y_test
-                }
-                
-                st.success("✓ Analysis complete!")
-                st.rerun()
+            st.session_state.current_results = get_predictions(model, X_test, y_test, st.session_state.selected_model, scaler)
+            st.rerun()
         else:
-            st.error(f"Model file not found: model_{st.session_state.selected_model.replace(' ', '_').lower()}.pkl")
+            st.error(f"Model file for {st.session_state.selected_model} not found.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-if st.session_state.results is not None:
-    results = st.session_state.results
-    y_test = results['y_test']
-    y_pred = results['y_pred']
-    y_pred_proba = results['y_pred_proba']
-    
+if st.session_state.current_results:
+    res = st.session_state.current_results
+    st.markdown("Metrics: " + res['model_name'])
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Accuracy", f"{res['accuracy']:.3f}")
+    m2.metric("AUC", f"{res['auc']:.3f}")
+    m3.metric("Precision", f"{res['precision']:.3f}")
+    m4.metric("Recall", f"{res['recall']:.3f}")
+    m5.metric("F1", f"{res['f1']:.3f}")
+
+    if res['confusion_matrix'] is not None:
+        st.pyplot(plot_styled_cm(res['confusion_matrix']))
+
+    if st.button("Add to Comparison Matrix"):
+        if not any(r['model_name'] == res['model_name'] for r in st.session_state.comparison_results):
+            st.session_state.comparison_results.append(res)
+            st.toast("Added!")
+
+if st.session_state.comparison_results:
     st.markdown("---")
-    st.header("Results")
-    
-    if y_test is not None:
-        # Metrics
-        st.subheader("Performance Metrics")
-        
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        
-        with col1:
-            st.metric("Accuracy", f"{accuracy_score(y_test, y_pred):.4f}")
-        with col2:
-            st.metric("AUC", f"{roc_auc_score(y_test, y_pred_proba):.4f}")
-        with col3:
-            st.metric("Precision", f"{precision_score(y_test, y_pred):.4f}")
-        with col4:
-            st.metric("Recall", f"{recall_score(y_test, y_pred):.4f}")
-        with col5:
-            st.metric("F1", f"{f1_score(y_test, y_pred):.4f}")
-        with col6:
-            st.metric("MCC", f"{matthews_corrcoef(y_test, y_pred):.4f}")
-        
-        # Confusion Matrix
-        st.subheader("Confusion Matrix")
-        
-        cm = confusion_matrix(y_test, y_pred)
-        fig, ax = plt.subplots(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                   xticklabels=['No', 'Yes'],
-                   yticklabels=['No', 'Yes'],
-                   ax=ax)
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('Actual')
-        st.pyplot(fig)
-        plt.close()
-
-# Footer
-st.markdown("---")
-st.caption("ML Assignment 2 • Bank Marketing Dataset")
+    st.markdown("## Model Comparison")
+    comp_df = pd.DataFrame(st.session_state.comparison_results).drop(['y_pred', 'confusion_matrix'], axis=1)
+    st.table(comp_df)
+    if st.button("Clear Comparison"):
+        st.session_state.comparison_results = []
+        st.rerun()
